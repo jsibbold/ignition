@@ -47,6 +47,7 @@ import com.github.ignition.location.templates.ILastLocationFinder;
 import com.github.ignition.location.templates.IgnitedAbstractLastLocationFinder;
 import com.github.ignition.location.templates.IgnitedAbstractLocationUpdateRequester;
 import com.github.ignition.location.templates.OnIgnitedLocationChangedListener;
+import com.github.ignition.location.utils.IgnitedLocationSupport;
 import com.github.ignition.location.utils.PlatformSpecificImplementationFactory;
 import com.github.ignition.support.IgnitedDiagnostics;
 
@@ -65,16 +66,20 @@ public aspect IgnitedLocationManager {
     private Context context;
     private volatile Location currentLocation;
 
-    private AsyncTask<Void, Void, Location> ignitedLastKnownLocationTask;
+    private IgnitedLastKnownLocationAsyncTask ignitedLastKnownLocationTask;
     private SharedPreferences prefs;
     private Handler handler;
 
     private long locationUpdatesInterval, passiveLocationUpdatesInterval;
     private int locationUpdatesDistanceDiff;
     private int passiveLocationUpdatesDistanceDiff;
-    private boolean requestLocationUpdates;
+    private boolean requestLocationUpdates = false;
     private boolean locationUpdatesDisabled = true;
-    
+    private boolean waitForFixDialogShown = false;
+    private boolean noProvidersEnabledDialogShown = false;
+    private boolean locationProviderDisabledReceiverRegistered = false;
+    private boolean refreshLocationUpdatesReceiverRegistered = false;
+
     // Switch to another provider if gps doesn't return a location quickly enough.
     private Runnable removeGpsUpdates = new Runnable() {
         @Override
@@ -184,8 +189,8 @@ public aspect IgnitedLocationManager {
         Log.d(LOG_TAG, "Retrieving last known location...");
         // Get the last known location. This isn't directly affecting the UI, so put it on a
         // worker thread.
-        ignitedLastKnownLocationTask = new IgnitedLastKnownLocationAsyncTask(
-                context, locationUpdatesDistanceDiff, locationUpdatesInterval);
+        ignitedLastKnownLocationTask = new IgnitedLastKnownLocationAsyncTask(context,
+                locationUpdatesDistanceDiff, locationUpdatesInterval);
         ignitedLastKnownLocationTask.execute();
     }
 
@@ -231,28 +236,35 @@ public aspect IgnitedLocationManager {
     }
 
     before(Activity activity, IgnitedLocationActivity ignitedAnnotation) : execution(* Activity.onPause(..)) 
-        && @this(ignitedAnnotation) && this(activity)
-        && within(@IgnitedLocationActivity *) && if (ignitedAnnotation.requestLocationUpdates()) {
+        && @this(ignitedAnnotation) && this(activity) && within(@IgnitedLocationActivity *) {
 
-        disableLocationUpdates(true);
+        if (ignitedAnnotation.requestLocationUpdates()) {
+            disableLocationUpdates(true);
+            handler.removeCallbacks(removeGpsUpdates);
+        }
 
-        handler.removeCallbacks(removeGpsUpdates);
+        if (ignitedLastKnownLocationTask != null) {
+            if (ignitedLastKnownLocationTask.getStatus() != AsyncTask.Status.FINISHED) {
+                Log.d(LOG_TAG, "Cancel last location task");
+                ignitedLastKnownLocationTask.cancel(true);
+            }
+            ignitedLastKnownLocationTask.getLastLocationFinder().cancel();
+        }
 
         boolean finishing = activity.isFinishing();
         if (finishing) {
-            if (ignitedLastKnownLocationTask != null && ignitedLastKnownLocationTask.getStatus() != AsyncTask.Status.FINISHED) {
-                ignitedLastKnownLocationTask.cancel(true);
-            } else {
-                PlatformSpecificImplementationFactory.getLastLocationFinder(context).cancel();
-            }
-
             context = null;
+            // Be sure to reset every flag previously set (since an aspect is a
+            // singleton by default, so its state will be shared across all Activities that
+            // reference it).
+            requestLocationUpdates = false;
+            locationUpdatesDisabled = true;
+            waitForFixDialogShown = false;
+            noProvidersEnabledDialogShown = false;
+            locationProviderDisabledReceiverRegistered = false;
+            refreshLocationUpdatesReceiverRegistered = false;
         }
     }
-
-    // after() : execution(* Activity.onDestroy(..)) && @this(IgnitedLocationActivity)
-    // && within(@IgnitedLocationActivity *) {
-    // }
 
     Location around() : get(@IgnitedLocation Location *) {
         return currentLocation;
@@ -263,7 +275,8 @@ public aspect IgnitedLocationManager {
 
         currentLocation = freshLocation;
         Log.d(LOG_TAG, "New location from " + currentLocation.getProvider() + " (lat, lng/acc): "
-                + currentLocation.getLatitude() + ", " + currentLocation.getLongitude() + "/" + currentLocation.getAccuracy());
+                + currentLocation.getLatitude() + ", " + currentLocation.getLongitude() + "/"
+                + currentLocation.getAccuracy());
     }
 
     void around(Location freshLocation) : set(@IgnitedLocation Location *) && args(freshLocation) 
@@ -273,18 +286,51 @@ public aspect IgnitedLocationManager {
         if (context == null) {
             return;
         }
+
         final Activity activity = (Activity) context;
-        boolean showWaitForLocationDialog = prefs.getBoolean(
-                IgnitedLocationConstants.SP_KEY_SHOW_WAIT_FOR_LOCATION_DIALOG,
-                IgnitedLocationConstants.SHOW_WAIT_FOR_LOCATION_DIALOG_DEFAULT);
-        if (freshLocation == null && showWaitForLocationDialog) {
-            activity.showDialog(R.id.ign_loc_dialog_wait_for_fix);
+        if (IgnitedLocationSupport.getEnabledProviders(context).isEmpty()) {
+            // On some older versions of Android if a dialog is not shown by the activity after
+            // calling showDialog an IllegalArgunmentException is raised. Catch this exception since
+            // the docs returning a null dialog should be allowed.
+            try {
+                activity.showDialog(R.id.ign_loc_dialog_no_providers_enabled);
+                noProvidersEnabledDialogShown = true;
+            } catch (IllegalArgumentException e) {
+                e.printStackTrace();
+            }
+            return;
+        }
+
+        if (freshLocation == null) {
+            // TODO Migrate this to DialogFragment at some point
+            boolean showWaitForLocationDialog = prefs.getBoolean(
+                    IgnitedLocationConstants.SP_KEY_SHOW_WAIT_FOR_LOCATION_DIALOG,
+                    IgnitedLocationConstants.SHOW_WAIT_FOR_LOCATION_DIALOG_DEFAULT);
+            if (showWaitForLocationDialog && !activity.isFinishing()) {
+                // On some older versions of Android if a dialog is not shown by the activity after
+                // calling showDialog an IllegalArgunmentException is raised. Catch this exception since
+                // the docs returning a null dialog should be allowed.
+                try {
+                    activity.showDialog(R.id.ign_loc_dialog_wait_for_fix);
+                    waitForFixDialogShown = true;
+                } catch (IllegalArgumentException e) {
+                    e.printStackTrace();
+                }
+            }
             return;
         }
 
         currentLocation = freshLocation;
         Log.d(LOG_TAG, "New location from " + currentLocation.getProvider() + " (lat, lng/acc): "
                 + currentLocation.getLatitude() + ", " + currentLocation.getLongitude() + "/" + currentLocation.getAccuracy());
+        // TODO Migrate this to DialogFragment at some point
+        if (noProvidersEnabledDialogShown) {
+            activity.removeDialog(R.id.ign_loc_dialog_no_providers_enabled);
+            noProvidersEnabledDialogShown = false;
+        } else if (waitForFixDialogShown) {
+            activity.removeDialog(R.id.ign_loc_dialog_wait_for_fix);
+            waitForFixDialogShown = false;
+        }
         boolean keepRequestingLocationUpdates = ((OnIgnitedLocationChangedListener) context)
                 .onIgnitedLocationChanged(currentLocation);
         Bundle extras = freshLocation.getExtras();
@@ -296,13 +342,13 @@ public aspect IgnitedLocationManager {
             // PlatformSpecificImplementationFactory.getLastLocationFinder(context).cancel();
             return;
         } else if (requestLocationUpdates
-                && !extras.containsKey(ILastLocationFinder.LAST_LOCATION_TOO_OLD_OR_INACCURATE_EXTRA)) {
+                && (extras == null || !extras.containsKey(ILastLocationFinder.LAST_LOCATION_TOO_OLD_OR_INACCURATE_EXTRA))) {
             // If we requested location updates, turn them on here.
             requestLocationUpdates(context, null);
         }
 
         // If gps is enabled location comes from gps, remove runnable that removes gps updates
-        boolean lastLocation = extras.containsKey(IgnitedLocationConstants.IGNITED_LAST_LOCATION_EXTRA);
+        boolean lastLocation = extras != null && extras.containsKey(IgnitedLocationConstants.IGNITED_LAST_LOCATION_EXTRA);
         if (!lastLocation && defaultCriteria.getAccuracy() == Criteria.ACCURACY_FINE
                 && currentLocation.getProvider().equals(LocationManager.GPS_PROVIDER)) {
             handler.removeCallbacks(removeGpsUpdates);
@@ -338,10 +384,12 @@ public aspect IgnitedLocationManager {
                 IgnitedLocationConstants.ACTIVE_LOCATION_UPDATE_PROVIDER_DISABLED_ACTION);
         context.registerReceiver(locationProviderDisabledReceiver,
                 locationProviderDisabledIntentFilter);
+        locationProviderDisabledReceiverRegistered = true;
 
         IntentFilter refreshLocationUpdatesIntentFilter = new IntentFilter(
                 IgnitedLocationConstants.UPDATE_LOCATION_UPDATES_CRITERIA_ACTION);
         context.registerReceiver(refreshLocationUpdatesReceiver, refreshLocationUpdatesIntentFilter);
+        refreshLocationUpdatesReceiverRegistered = true;
 
         // Register a receiver that listens for when a better provider than I'm
         // using becomes available.
@@ -376,9 +424,14 @@ public aspect IgnitedLocationManager {
         }
 
         Log.d(LOG_TAG, "Disabling location updates");
-        context.unregisterReceiver(locationProviderDisabledReceiver);
-        context.unregisterReceiver(refreshLocationUpdatesReceiver);
-
+        if (locationProviderDisabledReceiverRegistered) {
+            context.unregisterReceiver(locationProviderDisabledReceiver);
+            locationProviderDisabledReceiverRegistered = false;
+        }
+        if (refreshLocationUpdatesReceiverRegistered) {
+            context.unregisterReceiver(refreshLocationUpdatesReceiver);
+            refreshLocationUpdatesReceiverRegistered = false;
+        }
         locationUpdateRequester.removeLocationUpdates();
         if (bestInactiveLocationProviderListener != null) {
             locationManager.removeUpdates(bestInactiveLocationProviderListener);

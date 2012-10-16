@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.github.ignition</groupId>
   <artifactId>ignition</artifactId>
-  <version>0.2-SNAPSHOT</version>
+  <version>0.3-SNAPSHOT</version>
   <packaging>pom</packaging>
   <url>http://github.com/kaeppler/ignition</url>
   <description>
@@ -68,7 +68,7 @@
     <androidVersion>1.6</androidVersion>
     <androidApiRevision>_r2</androidApiRevision>
 
-    <androidPluginVersion>3.0.2</androidPluginVersion>
+    <androidPluginVersion>3.1.1</androidPluginVersion>
 
     <!-- build settings -->
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -97,7 +97,7 @@
       <dependency>
         <groupId>com.pivotallabs</groupId>
         <artifactId>robolectric</artifactId>
-        <version>1.1-qype</version>
+        <version>1.1</version>
         <scope>test</scope>
       </dependency>
     </dependencies>

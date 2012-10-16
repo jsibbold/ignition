@@ -4,27 +4,19 @@
   <parent>
     <groupId>com.github.ignition</groupId>
     <artifactId>ignition-core-project</artifactId>
-    <version>0.2-SNAPSHOT</version>
+    <version>0.3-SNAPSHOT</version>
   </parent>
   <artifactId>ignition-core-samples</artifactId>
-  <packaging>pom</packaging>
+  <packaging>apk</packaging>
 
-  <modules>
-    <module>ignited-async-task-sample</module>
-    <module>remote-image-view-sample</module>
-    <module>remote-image-gallery-sample</module>
-  </modules>
-
-  <dependencyManagement>
-    <dependencies>
-      <dependency>
-        <groupId>com.github.ignition</groupId>
-        <artifactId>ignition-core</artifactId>
-        <type>apklib</type>
-        <version>${project.version}</version>
-      </dependency>
-    </dependencies>
-  </dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>com.github.ignition</groupId>
+      <artifactId>ignition-core</artifactId>
+      <type>apklib</type>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
 
   <build>
     <sourceDirectory>src</sourceDirectory>

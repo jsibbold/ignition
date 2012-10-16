@@ -16,7 +16,6 @@
 
 package com.github.ignition.location.templates;
 
-import android.content.Context;
 import android.location.Location;
 import android.location.LocationListener;
 
@@ -40,15 +39,16 @@ public interface ILastLocationFinder {
      * a one-shot update of the current location to be returned using the {@link LocationListener}
      * passed in through {@link setChangedLocationListener}
      * 
-     * @param appContext
-     *            Application context.
      * @param minDistance
      *            Minimum distance before we require a location update.
      * @param minTime
      *            Minimum time required between location updates.
+     * @param refreshLocationIfLastLocationIsTooOld
+     *            Request a single update if the last location is too old.
      * @return The most accurate and / or timely previously detected location.
      */
-    Location getLastBestLocation(Context appContext, int minDistance, long minTime);
+    Location getLastBestLocation(int minDistance, long minTime,
+            boolean refreshLocationIfLastLocationIsTooOld);
 
     /**
      * Cancel the one-shot current location update.

@@ -38,7 +38,7 @@ import com.github.ignition.location.templates.IgnitedAbstractLastLocationFinder;
  * (where one exists) and setup a oneshot location update to find the current location.
  */
 public class IgnitedGingerbreadLastLocationFinder extends IgnitedAbstractLastLocationFinder {
-    private static String SINGLE_LOCATION_UPDATE_ACTION = "com.github.ignition.location.SINGLE_LOCATION_UPDATE_ACTION";
+    public static String SINGLE_LOCATION_UPDATE_ACTION = "com.github.ignition.location.SINGLE_LOCATION_UPDATE_ACTION";
 
     private PendingIntent singleUpatePI;
 
@@ -69,7 +69,18 @@ public class IgnitedGingerbreadLastLocationFinder extends IgnitedAbstractLastLoc
         IntentFilter locIntentFilter = new IntentFilter(SINGLE_LOCATION_UPDATE_ACTION);
         context.registerReceiver(singleUpdateReceiver, locIntentFilter);
         singleUpdateReceiverRegistered = true;
-        locationManager.requestSingleUpdate(criteria, singleUpatePI);
+        try {
+            locationManager.requestSingleUpdate(criteria, singleUpatePI);
+        } catch (IllegalArgumentException e) {
+            // Fold back to the network provider, since we know it's the quickest and less battery
+            // draining location provider.
+            Log.e(LOG_TAG,
+                    "no provider found for the supplied criteria, try requesting network update");
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager
+                        .requestSingleUpdate(LocationManager.NETWORK_PROVIDER, singleUpatePI);
+            }
+        }
     }
 
     /**
@@ -88,8 +99,8 @@ public class IgnitedGingerbreadLastLocationFinder extends IgnitedAbstractLastLoc
             if (location != null) {
                 Log.d(LOG_TAG,
                         "Single Location Update Received from " + location.getProvider()
-                                + " (lat, long): " + location.getLatitude() + ", "
-                                + location.getLongitude());
+                                + " (lat, long/acc): " + location.getLatitude() + ", "
+                                + location.getLongitude() + "/" + location.getAccuracy());
                 setCurrentLocation(location);
             }
 
@@ -102,14 +113,15 @@ public class IgnitedGingerbreadLastLocationFinder extends IgnitedAbstractLastLoc
      */
     @Override
     public void cancel() {
+        Log.d(LOG_TAG, "Remove single update request");
         locationManager.removeUpdates(singleUpatePI);
-        if (singleUpdateReceiverRegistered) {
-            unregisterSingleUpdateReceiver();
-        }
+        unregisterSingleUpdateReceiver();
     }
 
     private void unregisterSingleUpdateReceiver() {
-        context.unregisterReceiver(singleUpdateReceiver);
-        singleUpdateReceiverRegistered = false;
+        if (singleUpdateReceiverRegistered) {
+            context.unregisterReceiver(singleUpdateReceiver);
+            singleUpdateReceiverRegistered = false;
+        }
     }
 }

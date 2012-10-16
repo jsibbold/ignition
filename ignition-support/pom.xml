@@ -4,14 +4,14 @@
   <parent>
     <groupId>com.github.ignition</groupId>
     <artifactId>ignition</artifactId>
-    <version>0.2-SNAPSHOT</version>
+    <version>0.3-SNAPSHOT</version>
   </parent>
   <artifactId>ignition-support-project</artifactId>
   <packaging>pom</packaging>
 
   <modules>
     <module>ignition-support-lib</module>
-    <module>ignition-support-samples</module>
+	<module>ignition-support-samples</module>
   </modules>
 
   <dependencies>

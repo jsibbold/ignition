@@ -9,15 +9,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import android.graphics.drawable.Drawable;
-import android.widget.ImageView;
 
 import com.github.ignition.core.test.shadows.RemoteImageLoaderMock;
 import com.github.ignition.core.test.shadows.TestShadowProgressBar;
 import com.github.ignition.core.widgets.RemoteImageView;
-import com.github.ignition.samples.remoteimageview.R;
-import com.github.ignition.samples.remoteimageview.RemoteImageViewActivity;
+import com.github.ignition.samples.core.R;
+import com.github.ignition.samples.core.RemoteImageViewActivity;
 import com.xtremelabs.robolectric.Robolectric;
-import com.xtremelabs.robolectric.shadows.ShadowImageView;
 
 @RunWith(IgnitionCoreTestRunner.class)
 public class RemoteImageViewTest {
@@ -61,14 +59,17 @@ public class RemoteImageViewTest {
         assertEquals(expectedErrorDrawable, imageView.getErrorDrawable());
     }
 
-    @Test
-    public void canUseImageViewSpecificAttributes() {
-        RemoteImageView riv = (RemoteImageView) activity.findViewById(R.id.image5);
-        ImageView imageView = riv.getImageView();
-        ShadowImageView shadow = Robolectric.shadowOf(imageView);
-        shadow.applyAttributes();
-        System.out.println("IN TEST: " + imageView.getScaleType());
-    }
+    // TODO: doesn't work because Robolectric doesn't implement obtainStyledAttributes...
+    // @Test
+    // public void canCustomizeTheProgressDrawable() {
+    // RemoteImageView imageView = (RemoteImageView) activity.findViewById(R.id.image2);
+    //
+    // imageView.setupViewSwitcher();
+    //
+    // Drawable expectedProgressDrawable = Robolectric.application.getResources().getDrawable(
+    // android.R.drawable.progress_indeterminate_horizontal);
+    // assertEquals(expectedProgressDrawable, imageView.getProgressDrawable());
+    // }
 
     @Test
     public void testAutoLoadingOfImages() {
@@ -96,5 +97,4 @@ public class RemoteImageViewTest {
         Robolectric.clickOn(activity.findViewById(R.id.load_image_button));
         assertTrue(imageLoader.isLoadImageCalled(view5));
     }
-
 }

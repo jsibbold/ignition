@@ -41,8 +41,9 @@ public class PlatformSpecificImplementationFactory {
 
     /**
      * Create a new LastLocationFinder instance
-     *
-     * @param context {@link android.content.Context}
+     * 
+     * @param context
+     *            {@link android.content.Context}
      * @return LastLocationFinder
      */
     public static ILastLocationFinder getLastLocationFinder(Context context) {
@@ -52,8 +53,9 @@ public class PlatformSpecificImplementationFactory {
 
     /**
      * Create a new LocationUpdateRequester
-     *
-     * @param locationManager {@link android.location.LocationManager}
+     * 
+     * @param locationManager
+     *            {@link android.location.LocationManager}
      * @return LocationUpdateRequester
      */
     public static IgnitedAbstractLocationUpdateRequester getLocationUpdateRequester(Context context) {
@@ -68,5 +70,4 @@ public class PlatformSpecificImplementationFactory {
             return new IgnitedLegacyLocationUpdateRequester(locationManager, alarmManager);
         }
     }
-
 }

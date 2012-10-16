@@ -23,17 +23,22 @@ import android.graphics.drawable.Drawable;
 import android.os.Message;
 import android.util.AttributeSet;
 import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.RelativeLayout;
 import android.widget.ViewSwitcher;
 
 import com.github.ignition.core.Ignition;
+import com.github.ignition.core.R;
 import com.github.ignition.support.images.remote.RemoteImageLoader;
 import com.github.ignition.support.images.remote.RemoteImageLoaderHandler;
 
 /**
- * An image view that fetches its image off the web using the supplied URL. While the image is being
- * downloaded, a progress indicator will be shown. The following attributes are supported:
+ * An {@link ImageView} that fetches its image off the web from the supplied URL. While the image is
+ * being downloaded, a progress indicator will be shown. The following attributes are supported:
  * <ul>
  * <li>android:src (Drawable) -- The default/placeholder image that is shown if no image can be
  * downloaded, or before the image download starts (see {@link android.R.attr#src})
@@ -44,10 +49,21 @@ import com.github.ignition.support.images.remote.RemoteImageLoaderHandler;
  * inflation</li>
  * <li>ignition:errorDrawable (Drawable) -- The drawable to display if the image download fails</li>
  * </ul>
+ * Being an ImageView itself, all other attributes of Android's own ImageView are supported, too.
+ * <p>
+ * This functionality is realized by the view dynamically re-attaching itself in the Activity's view
+ * tree under a {@link ViewSwitcher}. You can retrieve a reference to the switcher by a call to
+ * {@link View#getParent()}. In order for layouting to work properly in Android's
+ * {@link RelativeLayout}, the view itself and the switcher (its parent view) share the same view
+ * IDs (a circumstance that's not optimal but allowed by Android). If you find that calls to
+ * findViewById return the switcher instead of the view itself, please use the provided
+ * {@link #findViewById(Activity, int))} helper method instead, which guarantees to return instances
+ * of this class.
+ * </p>
  * 
  * @author Matthias Kaeppler
  */
-public class RemoteImageView extends ViewSwitcher {
+public class RemoteImageView extends ImageView {
 
     public static final int DEFAULT_ERROR_DRAWABLE_RES_ID = android.R.drawable.ic_dialog_alert;
 
@@ -55,20 +71,20 @@ public class RemoteImageView extends ViewSwitcher {
     private static final String ATTR_IMAGE_URL = "imageUrl";
     private static final String ATTR_ERROR_DRAWABLE = "errorDrawable";
 
-    private static final int[] ANDROID_VIEW_ATTRS = { android.R.attr.indeterminateDrawable };
-    private static final int ATTR_INDET_DRAWABLE = 0;
+    private static final int STATE_DEFAULT = 0;
+    private static final int STATE_LOADED = 1;
+    private static final int STATE_LOADING = 2;
 
+    private int state = STATE_DEFAULT;
     private String imageUrl;
+    private boolean autoLoad;
 
-    private boolean autoLoad, isLoaded;
-
-    private ProgressBar loadingSpinner;
-    private ImageView imageView;
-
+    private ViewGroup progressViewContainer;
     private Drawable progressDrawable, errorDrawable;
 
     private RemoteImageLoader imageLoader;
     private static RemoteImageLoader sharedImageLoader;
+    private RemoteImageViewListener listener;
 
     /**
      * Use this method to inject an image loader that will be shared across all instances of this
@@ -123,8 +139,9 @@ public class RemoteImageView extends ViewSwitcher {
         // These are attributes that are specific to RemoteImageView, but which are not in the
         // ignition XML namespace.
         TypedArray imageViewAttrs = context.getTheme().obtainStyledAttributes(attributes,
-                ANDROID_VIEW_ATTRS, 0, 0);
-        int progressDrawableId = imageViewAttrs.getResourceId(ATTR_INDET_DRAWABLE, 0);
+                R.styleable.RemoteImageView, 0, 0);
+        int progressDrawableId = imageViewAttrs.getResourceId(
+                R.styleable.RemoteImageView_android_indeterminateDrawable, 0);
         imageViewAttrs.recycle();
 
         int errorDrawableId = attributes.getAttributeResourceValue(Ignition.XMLNS,
@@ -155,27 +172,18 @@ public class RemoteImageView extends ViewSwitcher {
             this.imageLoader = sharedImageLoader;
         }
 
-        // ScaleAnimation anim = new ScaleAnimation(0.0f, 1.0f, 0.0f, 1.0f,
-        // 125.0f, preferredItemHeight / 2.0f);
-        // anim.setDuration(500L);
+        progressViewContainer = new FrameLayout(getContext());
+        progressViewContainer.addView(buildProgressSpinnerView(getContext()));
 
-        // AlphaAnimation anim = new AlphaAnimation(0.0f, 1.0f);
-        // anim.setDuration(500L);
-        // setInAnimation(anim);
-
-        addLoadingSpinnerView(context);
-        addImageView(context, attributes);
-
-        if (autoLoad && imageUrl != null) {
+        if (autoLoad) {
             loadImage();
         } else {
-            // if we don't have anything to load yet, don't show the progress element
-            setDisplayedChild(1);
+            showProgressView(false);
         }
     }
 
-    private void addLoadingSpinnerView(Context context) {
-        loadingSpinner = new ProgressBar(context);
+    protected View buildProgressSpinnerView(Context context) {
+        ProgressBar loadingSpinner = new ProgressBar(context);
         loadingSpinner.setIndeterminate(true);
         if (this.progressDrawable == null) {
             this.progressDrawable = loadingSpinner.getIndeterminateDrawable();
@@ -186,39 +194,46 @@ public class RemoteImageView extends ViewSwitcher {
             }
         }
 
-        LayoutParams lp = new LayoutParams(progressDrawable.getIntrinsicWidth(),
-                progressDrawable.getIntrinsicHeight());
-        lp.gravity = Gravity.CENTER;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                progressDrawable.getIntrinsicWidth(), progressDrawable.getIntrinsicHeight(),
+                Gravity.CENTER);
+        loadingSpinner.setLayoutParams(lp);
 
-        addView(loadingSpinner, 0, lp);
+        return loadingSpinner;
     }
 
-    private void addImageView(Context context, AttributeSet attributes) {
-        if (attributes != null) {
-            // pass along any view attribtues inflated from XML to the image view
-            imageView = new ImageView(context, attributes);
-        } else {
-            imageView = new ImageView(context);
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        // insert the progress view and its container as a sibling to this image view
+        if (progressViewContainer.getParent() == null) {
+            // the container for the progress view must behave identically to this view during
+            // layouting, otherwise e.g. relative positioning via IDs will break
+            progressViewContainer.setLayoutParams(getLayoutParams());
+
+            ViewGroup parent = (ViewGroup) getParent();
+            int index = parent.indexOfChild(this);
+            parent.addView(progressViewContainer, index + 1);
         }
-        LayoutParams lp = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
-        lp.gravity = Gravity.CENTER;
-        addView(imageView, 1, lp);
+
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }
 
     /**
      * Use this method to trigger the image download if you had previously set autoLoad to false.
      */
     public void loadImage() {
-        if (imageUrl == null) {
-            throw new IllegalStateException(
-                    "image URL is null; did you forget to set it for this view?");
+        if (state != STATE_LOADING) {
+            if (imageUrl == null) {
+                throw new IllegalStateException(
+                        "image URL is null; did you forget to set it for this view?");
+            }
+            showProgressView(true);
+            imageLoader.loadImage(imageUrl, this, new DefaultImageLoaderHandler());
         }
-        setDisplayedChild(0);
-        imageLoader.loadImage(imageUrl, imageView, new DefaultImageLoaderHandler());
     }
 
     public boolean isLoaded() {
-        return isLoaded;
+        return state == STATE_LOADED;
     }
 
     public void setImageUrl(String imageUrl) {
@@ -233,29 +248,44 @@ public class RemoteImageView extends ViewSwitcher {
      *            the resource of the placeholder image drawable
      */
     public void setNoImageDrawable(int imageResourceId) {
-        imageView.setImageDrawable(getContext().getResources().getDrawable(imageResourceId));
-        setDisplayedChild(1);
+        setImageDrawable(getContext().getResources().getDrawable(imageResourceId));
+        showProgressView(false);
     }
 
-    @Override
+    /**
+     * Reset to view to its initial state, i.e. hide the progress item and show the image.
+     */
     public void reset() {
-        super.reset();
+        showProgressView(false);
+    }
 
-        this.setDisplayedChild(0);
+    private void showProgressView(boolean show) {
+        if (show) {
+            state = STATE_LOADING;
+            progressViewContainer.setVisibility(View.VISIBLE);
+            setVisibility(View.INVISIBLE);
+        } else {
+            state = STATE_DEFAULT;
+            progressViewContainer.setVisibility(View.INVISIBLE);
+            setVisibility(View.VISIBLE);
+        }
     }
 
     private class DefaultImageLoaderHandler extends RemoteImageLoaderHandler {
 
         public DefaultImageLoaderHandler() {
-            super(imageView, imageUrl, errorDrawable);
+            super(RemoteImageView.this, imageUrl, errorDrawable);
         }
 
         @Override
         protected boolean handleImageLoaded(Bitmap bitmap, Message msg) {
             boolean wasUpdated = super.handleImageLoaded(bitmap, msg);
             if (wasUpdated) {
-                isLoaded = true;
-                setDisplayedChild(1);
+                state = STATE_LOADED;
+                if (listener != null) {
+                    listener.onImageLoaded(bitmap);
+                }
+                showProgressView(false);
             }
             return wasUpdated;
         }
@@ -282,8 +312,8 @@ public class RemoteImageView extends ViewSwitcher {
 
     /**
      * The drawable that should be used to indicate progress while downloading the image.
-     * Corresponds to the view attribute ignition:progressDrawable. If left blank, the platform's
-     * standard indeterminate progress drawable will be used.
+     * Corresponds to the view attribute android:indeterminateDrawable. If left blank, the
+     * platform's standard indeterminate progress drawable will be used.
      * 
      * @return the progress drawable
      */
@@ -303,20 +333,26 @@ public class RemoteImageView extends ViewSwitcher {
     }
 
     /**
-     * The image view that will render the downloaded image.
+     * The progress view that is shown while the image is loaded.
      * 
-     * @return the {@link ImageView}
+     * @return the progress view, default is a {@link ProgressBar}
      */
-    public ImageView getImageView() {
-        return imageView;
+    public View getProgressView() {
+        return progressViewContainer.getChildAt(0);
+    }
+
+    public static interface RemoteImageViewListener {
+        public void onImageLoaded(Bitmap bm);
     }
 
     /**
-     * The progress bar that is shown while the image is loaded.
+     * Use this method to set a listener for events raised by the remote image view such as image
+     * loaded.
      * 
-     * @return the {@link ProgressBar}
+     * @param listener
+     *            an implementation of the {@link RemoteImageViewListener} interface
      */
-    public ProgressBar getProgressBar() {
-        return loadingSpinner;
+    public void setRemoteImageViewListener(RemoteImageViewListener listener) {
+        this.listener = listener;
     }
 }

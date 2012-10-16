@@ -4,21 +4,20 @@
   <parent>
     <groupId>com.github.ignition</groupId>
     <artifactId>ignition-location-project</artifactId>
-    <version>0.2-SNAPSHOT</version>
+    <version>0.3-SNAPSHOT</version>
   </parent>
   <artifactId>ignition-location-tests</artifactId>
-  <name>ignition-location-tests</name>
 
   <dependencies>
     <dependency>
       <groupId>com.github.ignition</groupId>
-      <artifactId>ignition-location-sample</artifactId>
+      <artifactId>ignition-location-samples</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>com.google.android.maps</groupId>
       <artifactId>maps</artifactId>
-      <version>15_r1</version>
+      <version>${mapsVersion}</version>
     </dependency>
     <!-- test dependencies -->
     <dependency>

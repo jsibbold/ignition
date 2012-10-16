@@ -70,21 +70,34 @@ public class IgnitedDialogs {
     }
 
     /**
+     * Creates a new ProgressDialog with the default dialog title and message.
+     * 
+     * @param activity
+     * @return
+     */
+    public static ProgressDialog newProgressDialog(final Activity activity) {
+        return newProgressDialog(activity, -1, -1);
+    }
+
+    /**
      * Builds a new Yes/No AlertDialog
      * 
      * @param context
      * @param title
      * @param message
+     * @param positiveButtonMessage
+     * @param negativeButtonMessage
      * @param iconId
      * @param listener
      * @return
      */
     public static AlertDialog.Builder newYesNoDialog(final Context context, String title,
-            String message, int iconId, OnClickListener listener) {
+            String message, String positiveButtonMessage, String negativeButtonMessage, int iconId,
+            OnClickListener listener) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setCancelable(false);
-        builder.setPositiveButton(android.R.string.yes, listener);
-        builder.setNegativeButton(android.R.string.no, listener);
+        builder.setPositiveButton(positiveButtonMessage, listener);
+        builder.setNegativeButton(negativeButtonMessage, listener);
 
         builder.setTitle(title);
         builder.setMessage(message);
@@ -93,10 +106,25 @@ public class IgnitedDialogs {
         return builder;
     }
 
+    public static AlertDialog.Builder newYesNoDialog(final Context context, String title,
+            String message, int iconId, OnClickListener listener) {
+        return newYesNoDialog(context, title, message, context.getString(android.R.string.yes),
+                context.getString(android.R.string.no), iconId, listener);
+    }
+
     public static AlertDialog.Builder newYesNoDialog(final Context context, int titleId,
             int messageId, int iconId, OnClickListener listener) {
         return newYesNoDialog(context, context.getString(titleId), context.getString(messageId),
+                context.getString(android.R.string.yes), context.getString(android.R.string.no),
                 iconId, listener);
+    }
+
+    public static AlertDialog.Builder newYesNoDialog(final Context context, int titleId,
+            int messageId, int positiveButtonMessageId, int negativeButtonMessageId, int iconId,
+            OnClickListener listener) {
+        return newYesNoDialog(context, context.getString(titleId), context.getString(messageId),
+                context.getString(positiveButtonMessageId),
+                context.getString(negativeButtonMessageId), iconId, listener);
     }
 
     /**
@@ -256,8 +284,9 @@ public class IgnitedDialogs {
 
             @Override
             public void onClick(DialogInterface dialog, int which) {
-                if (closeOnSelect)
+                if (closeOnSelect) {
                     dialog.dismiss();
+                }
                 listener.onClick(which, elements.get(which));
             }
         });
